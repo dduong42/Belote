@@ -1,7 +1,7 @@
 import itertools
 import random
 from enum import Enum
-from typing import Dict, Iterable, List
+from typing import Dict, Generator, Iterable, List
 
 
 class Rank(Enum):
@@ -102,6 +102,9 @@ class Deck:
         assert len(cards) == nb_cards
         return cards
 
+    def peek(self) -> Card:
+        return self.cards[-1]
+
     def __len__(self) -> int:
         return len(self.cards)
 
@@ -121,19 +124,11 @@ class Player:
 
     def deal_5_cards(self, deck: Deck) -> None:
         # Deal 2 cards, then 3 cards, starting from the next player
-        player = self.next
-        while True:
+        for player in self.iter_from_next():
             player.add_to_hand(deck.pop_many(2))
-            if player == self:
-                break
-            player = player.next
 
-        player = self.next
-        while True:
+        for player in self.iter_from_next():
             player.add_to_hand(deck.pop_many(3))
-            if player == self:
-                break
-            player = player.next
 
     def deal_remaining(self, deck: Deck, bidder: 'Player') -> None:
         # Bidder gets the top card
@@ -141,10 +136,14 @@ class Player:
 
         # Deal the rest of the cards. Starting from the next player.
         # Bidder gets 2 cards, the other people get 3 cards.
-        player = self.next
-        while True:
+        for player in self.iter_from_next():
             nb_cards = 2 if player == bidder else 3
             player.add_to_hand(deck.pop_many(nb_cards))
+
+    def iter_from_next(self) -> Generator['Player', None, None]:
+        player = self.next
+        while True:
+            yield player
             if player == self:
                 break
             player = player.next
@@ -156,6 +155,35 @@ class Belote:
 
         self.players = players
         initialize_double_linked_list(players)
+        self.deck = Deck()
+
+    def start(self, dealer=None) -> None:
+        # Get a random dealer
+        dealer = dealer or random.choice(self.players)
+        dealer.deal_5_cards(self.deck)
+
+        card = self.deck.peek()
+        print('Do you want to take this card?', card)
+        for player in dealer.iter_from_next():
+            if input() == 'yes':
+                bidder = player
+                trump = card.suit
+                break
+        else:
+            print('What should be the trump?')
+            choices = [suit.value for suit in Suit if suit != Suit(card.suit)]
+            print(f'Choices: {" ".join(choices)}')
+            for player in dealer.iter_from_next():
+                suit = input()
+                if suit in choices:
+                    bidder = player
+                    trump = Suit(suit)
+                    break
+            else:
+                # Current player needs to cut and we need to start a new game.
+                # We'll deal with that later
+                return
+        dealer.deal_remaining(self.deck, bidder)
 
 
 def initialize_double_linked_list(players: List[Player]) -> None:
