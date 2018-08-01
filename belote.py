@@ -1,8 +1,7 @@
 import itertools
 import random
-
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
 
 class Rank(Enum):
@@ -113,8 +112,42 @@ class Deck:
 
 class Player:
     def __init__(self):
-        self.previous = None
-        self.next = None
+        self.previous: Player = None
+        self.next: Player = None
+        self.hand: List[Card] = []
+
+    def add_to_hand(self, cards: Iterable[Card]) -> None:
+        self.hand.extend(cards)
+
+    def deal_5_cards(self, deck: Deck) -> None:
+        # Deal 2 cards, then 3 cards, starting from the next player
+        player = self.next
+        while True:
+            player.add_to_hand(deck.pop_many(2))
+            if player == self:
+                break
+            player = player.next
+
+        player = self.next
+        while True:
+            player.add_to_hand(deck.pop_many(3))
+            if player == self:
+                break
+            player = player.next
+
+    def deal_remaining(self, deck: Deck, bidder: 'Player') -> None:
+        # Bidder gets the top card
+        bidder.add_to_hand(deck.pop_many(1))
+
+        # Deal the rest of the cards. Starting from the next player.
+        # Bidder gets 2 cards, the other people get 3 cards.
+        player = self.next
+        while True:
+            nb_cards = 2 if player == bidder else 3
+            player.add_to_hand(deck.pop_many(nb_cards))
+            if player == self:
+                break
+            player = player.next
 
 
 class Belote:
