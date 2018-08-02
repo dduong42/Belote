@@ -1,7 +1,8 @@
 import itertools
 import random
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Generator, Iterable, List
+from typing import Dict, Generator, Iterable, List, Tuple
 
 
 class Rank(Enum):
@@ -64,14 +65,20 @@ class Suit(Enum):
     CLUBS = '♣'
 
 
+@dataclass
 class Card:
-    def __init__(self, rank: Rank, suit: Suit) -> None:
-        self.rank = rank
-        self.suit = suit
+    rank: Rank
+    suit: Suit
 
     def __repr__(self) -> str:
         cls_name = self.__class__.__name__
         return f'<{cls_name}: {self.rank.value}{self.suit.value}>'
+
+
+CARDS = {
+    f'{rank.value}{suit.value}': Card(rank, suit)
+    for rank, suit in itertools.product(Rank, Suit)
+}
 
 
 class Deck:
@@ -148,6 +155,24 @@ class Player:
                 break
             player = player.next
 
+    def legal_moves(self, trump: Suit, pile: List[Card]) -> List[Card]:
+        try:
+            first_card = pile[0]
+        # First player can play whatever they want
+        except IndexError:
+            return self.hand
+
+        same_suit = [card for card in self.hand
+                     if card.suit == first_card.suit]
+        if same_suit:
+            return same_suit
+        trumps = [card for card in self.hand
+                  if card.suit == trump]
+        if trumps:
+            return trumps
+        # At this point, you can play whatever you want.
+        return self.hand
+
 
 class Belote:
     def __init__(self, players: List[Player]) -> None:
@@ -184,6 +209,29 @@ class Belote:
                 # We'll deal with that later
                 return
         dealer.deal_remaining(self.deck, bidder)
+
+        nb_tricks = 8
+        for _ in range(nb_tricks):
+            pile: List[Card] = []
+            for player in dealer.iter_from_next():
+                legal_moves = player.legal_moves(trump, pile)
+                print('What are you playing?', legal_moves)
+
+                # TODO: Handle errors
+                card = CARDS[input()]
+                assert card in legal_moves
+
+                pile.append(card)
+
+            def card_order(card: Card) -> Tuple[int, int]:
+                if card.suit == trump:
+                    return 2, TRUMP_ORDER[card.rank]
+                elif card.suit == pile[0].suit:
+                    return 1, NORMAL_ORDER[card.rank]
+                else:
+                    return 0, NORMAL_ORDER[card.rank]
+
+            print('Winning card:', max(pile, key=card_order))
 
 
 def initialize_double_linked_list(players: List[Player]) -> None:
