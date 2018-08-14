@@ -76,6 +76,12 @@ class Card:
         else:
             return NORMAL_VALUE[self.rank]
 
+    def get_rank(self, trump: Suit) -> int:
+        if self.suit == trump:
+            return TRUMP_ORDER[self.rank]
+        else:
+            return NORMAL_ORDER[self.rank]
+
     @classmethod
     def from_string(cls, s: str):
         if len(s) != 2:
@@ -140,13 +146,13 @@ class Trick:
     pile: List[Tuple[Player, Card]] = []
 
     def pile_key_function(self, player_card: Tuple[Player, Card]) -> Tuple[int, int]:
-        player, card = player_card
+        _, card = player_card
         if card.suit == self.game.trump:
-            return 2, TRUMP_ORDER[card.rank]
+            return 2, card.get_rank(self.game.trump)
         elif card.suit == self.dominant_suit:
-            return 1, NORMAL_ORDER[card.rank]
+            return 1, card.get_rank(self.game.trump)
         else:
-            return 0, NORMAL_ORDER[card.rank]
+            return 0, card.get_rank(self.game.trump)
 
     @property
     def dominant_suit(self) -> Optional[Suit]:
@@ -218,7 +224,7 @@ class Player:
             if winning_player == self.team:
                 return same_suit
             higher_trumps = [card for card in same_suit
-                             if TRUMP_ORDER[card.rank] > TRUMP_ORDER[winning_card.rank]]
+                             if card.get_rank(trick.game.trump) > winning_card.get_rank(trick.game.trump)]
             if higher_trumps:
                 return higher_trumps
             return same_suit
