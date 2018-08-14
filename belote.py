@@ -1,6 +1,6 @@
 import itertools
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Generator, Iterable, List, Optional, Tuple
 
@@ -84,10 +84,10 @@ class Card:
 
     @classmethod
     def from_string(cls, s: str):
-        if len(s) != 2:
+        if len(s) < 2:
             raise ValueError(f'{s} is not a valid card.')
         try:
-            return cls(Rank(s[0]), Suit(s[1]))
+            return cls(Rank(s[:-1]), Suit(s[-1]))
         except ValueError:
             raise ValueError(f'{s} is not a valid card.')
 
@@ -138,14 +138,15 @@ class Deck:
 @dataclass
 class Team:
     score: int = 0
+    has_contract: bool = False
 
 
 @dataclass
 class Trick:
-    game: Belote
-    pile: List[Tuple[Player, Card]] = []
+    game: 'Belote'
+    pile: List[Tuple['Player', Card]] = field(default_factory=list)
 
-    def pile_key_function(self, player_card: Tuple[Player, Card]) -> Tuple[int, int]:
+    def pile_key_function(self, player_card: Tuple['Player', Card]) -> Tuple[int, int]:
         _, card = player_card
         if card.suit == self.game.trump:
             return 2, card.get_rank(self.game.trump)
@@ -163,12 +164,12 @@ class Trick:
         return first_card.suit
 
     @property
-    def winning_player_card(self) -> Tuple[Player, Card]:
+    def winning_player_card(self) -> Tuple['Player', Card]:
         return max(self.pile, key=self.pile_key_function)
 
     @property
     def total_score(self):
-        sum((card.get_value(self.game.trump) for card in self.pile), start=0)
+        return sum((card.get_value(self.game.trump) for _, card in self.pile))
 
 
 class Player:
@@ -203,6 +204,9 @@ class Player:
             nb_cards = 2 if player == bidder else 3
             player.add_to_hand(deck.pop_many(nb_cards))
 
+    def iter_from_self(self) -> Generator['Player', None, None]:
+        yield from self.previous.iter_from_next()
+
     def iter_from_next(self) -> Generator['Player', None, None]:
         player = self.next
         while True:
@@ -214,27 +218,28 @@ class Player:
     def legal_moves(self, trick: Trick) -> List[Card]:
         if not trick.dominant_suit:
             return self.hand
-
+        winning_player, winning_card = trick.winning_player_card
         same_suit = [card for card in self.hand
                      if card.suit == trick.dominant_suit]
         if trick.dominant_suit == trick.game.trump:
             if not same_suit:
                 return self.hand
-            winning_player, winning_card = trick.winning_player_card
             if winning_player == self.team:
                 return same_suit
             higher_trumps = [card for card in same_suit
                              if card.get_rank(trick.game.trump) > winning_card.get_rank(trick.game.trump)]
-            if higher_trumps:
-                return higher_trumps
-            return same_suit
+            return higher_trumps or same_suit
 
         if same_suit:
             return same_suit
         trumps = [card for card in self.hand
                   if card.suit == trick.game.trump]
         if trumps:
-            return trumps
+            if winning_player == self.team:
+                return trumps
+            higher_trumps = [card for card in same_suit
+                             if card.get_rank(trick.game.trump) > winning_card.get_rank(trick.game.trump)]
+            return higher_trumps or trumps
         # At this point, you can play whatever you want.
         return self.hand
 
@@ -257,6 +262,14 @@ class Belote:
 
         self.players[1].team = self.teams[1]
         self.players[3].team = self.teams[1]
+
+    @property
+    def bidding_team(self) -> Team:
+        return next(team for team in self.teams if team.has_contract)
+
+    @property
+    def other_team(self) -> Team:
+        return next(team for team in self.teams if not team.has_contract)
 
     def start(self, dealer=None) -> None:
         # Get a random dealer
@@ -284,12 +297,14 @@ class Belote:
                 # Current player needs to cut and we need to start a new game.
                 # We'll deal with that later
                 return
+        bidder.team.has_contract = True
         dealer.deal_remaining(self.deck, bidder)
 
         nb_tricks = 8
+        winner = dealer.next
         for _ in range(nb_tricks):
             trick: Trick = Trick(self)
-            for player in dealer.iter_from_next():
+            for player in winner.iter_from_self():
                 legal_moves = player.legal_moves(trick)
                 print('What are you playing?', legal_moves)
 
@@ -301,6 +316,13 @@ class Belote:
             winner.team.score += trick.total_score
         # The winner of the last trick gets 10 points
         winner.team.score += 10
+        print(f'Bidding team: {self.bidding_team.score}')
+        print(f'Other team: {self.other_team.score}')
+        if self.bidding_team.score > self.other_team.score:
+            print('Bidding team won!')
+        else:
+            print('Other team won!')
+
 
 
 def initialize_double_linked_list(players: List[Player]) -> None:
@@ -311,3 +333,10 @@ def initialize_double_linked_list(players: List[Player]) -> None:
         previous_player.next = player
         player.previous = previous_player
         previous_player = player
+
+
+p1 = Player()
+p2 = Player()
+p3 = Player()
+p4 = Player()
+Belote([p1, p2, p3, p4]).start()
