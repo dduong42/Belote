@@ -65,7 +65,7 @@ class Suit(Enum):
     CLUBS = '♣'
 
 
-@dataclass
+@dataclass(frozen=True)
 class Card:
     rank: Rank
     suit: Suit
