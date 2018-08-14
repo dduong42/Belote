@@ -129,11 +129,17 @@ class Deck:
         return f'<{cls_name}: {repr(self.cards)}>'
 
 
+@dataclass
+class Team:
+    score: int = 0
+
+
 class Player:
     def __init__(self):
         self.previous: Player = None
         self.next: Player = None
         self.hand: List[Card] = []
+        self.team: Team = None
 
     def add_to_hand(self, cards: Iterable[Card]) -> None:
         self.hand.extend(cards)
@@ -188,8 +194,18 @@ class Belote:
         assert len(players) == 4
 
         self.players = players
+        self.set_teams()
         initialize_double_linked_list(players)
         self.deck = Deck()
+
+    def set_teams(self):
+        self.teams = [Team(), Team()]
+
+        self.players[0].team = self.teams[0]
+        self.players[2].team = self.teams[0]
+
+        self.players[1].team = self.teams[1]
+        self.players[3].team = self.teams[1]
 
     def start(self, dealer=None) -> None:
         # Get a random dealer
