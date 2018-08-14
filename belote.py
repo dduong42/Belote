@@ -197,6 +197,7 @@ class Belote:
         self.set_teams()
         initialize_double_linked_list(players)
         self.deck = Deck()
+        self.trump: Suit = None
 
     def set_teams(self):
         self.teams = [Team(), Team()]
@@ -217,7 +218,7 @@ class Belote:
         for player in dealer.iter_from_next():
             if input() == 'yes':
                 bidder = player
-                trump = card.suit
+                self.trump = card.suit
                 break
         else:
             print('What should be the trump?')
@@ -227,7 +228,7 @@ class Belote:
                 suit = input()
                 if suit in choices:
                     bidder = player
-                    trump = Suit(suit)
+                    self.trump = Suit(suit)
                     break
             else:
                 # Current player needs to cut and we need to start a new game.
@@ -239,7 +240,7 @@ class Belote:
         for _ in range(nb_tricks):
             pile: List[Card] = []
             for player in dealer.iter_from_next():
-                legal_moves = player.legal_moves(trump, pile)
+                legal_moves = player.legal_moves(self.trump, pile)
                 print('What are you playing?', legal_moves)
 
                 # TODO: Handle errors
@@ -249,7 +250,7 @@ class Belote:
                 pile.append(card)
 
             def card_order(card: Card) -> Tuple[int, int]:
-                if card.suit == trump:
+                if card.suit == self.trump:
                     return 2, TRUMP_ORDER[card.rank]
                 elif card.suit == pile[0].suit:
                     return 1, NORMAL_ORDER[card.rank]
