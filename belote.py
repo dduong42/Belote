@@ -70,6 +70,12 @@ class Card:
     rank: Rank
     suit: Suit
 
+    def get_value(self, trump: Suit) -> int:
+        if self.suit == trump:
+            return TRUMP_VALUE[self.rank]
+        else:
+            return NORMAL_VALUE[self.rank]
+
     @classmethod
     def from_string(cls, s: str):
         if len(s) != 2:
