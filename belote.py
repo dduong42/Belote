@@ -70,15 +70,18 @@ class Card:
     rank: Rank
     suit: Suit
 
+    @classmethod
+    def from_string(cls, s: str):
+        if len(s) != 2:
+            raise ValueError(f'{s} is not a valid card.')
+        try:
+            return cls(Rank(s[0]), Suit(s[1]))
+        except ValueError:
+            raise ValueError(f'{s} is not a valid card.')
+
     def __repr__(self) -> str:
         cls_name = self.__class__.__name__
         return f'<{cls_name}: {self.rank.value}{self.suit.value}>'
-
-
-CARDS = {
-    f'{rank.value}{suit.value}': Card(rank, suit)
-    for rank, suit in itertools.product(Rank, Suit)
-}
 
 
 class Deck:
@@ -218,7 +221,7 @@ class Belote:
                 print('What are you playing?', legal_moves)
 
                 # TODO: Handle errors
-                card = CARDS[input()]
+                card = Card.from_string(input())
                 assert card in legal_moves
 
                 pile.append(card)
