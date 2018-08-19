@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 import random
 from dataclasses import dataclass, field
@@ -173,15 +174,36 @@ class Trick:
 
 
 class Player:
-    def __init__(self):
+    def __init__(self, transport: asyncio.WriteTransport):
         self.previous: Player = None
         self.next: Player = None
         self.hand: List[Card] = []
         self.team: Team = None
+        self.number: int
+        self.transport = transport
+        self.queue = asyncio.Queue()
+
+    def send_hand(self):
+        self.send_message(f'Your hand is {self.hand}')
+
+    def set_number(self, number: int):
+        self.number = number
+        self.send_message(f'You are the Player {number}')
+
+    def send_message(self, msg: str):
+        """Send a message to the player."""
+        msg += '\n'
+        self.transport.write(msg.encode())
+
+    async def recv_message(self):
+        """Get a message from the player."""
+        return await self.queue.get()
 
     def plays(self, trick: Trick, card: Card):
         trick.pile.append((self, card))
         self.hand.remove(card)
+        for player in self.iter_from_next():
+            player.send_message(f'Player {self.number} is playing {card}')
 
     def add_to_hand(self, cards: Iterable[Card]) -> None:
         self.hand.extend(cards)
@@ -243,14 +265,18 @@ class Player:
         # At this point, you can play whatever you want.
         return self.hand
 
+    async def ask_to_play(self, trick: Trick):
+        legal_moves = self.legal_moves(trick)
+        self.send_message(f'What are you playing? {legal_moves}')
+        # TODO: Handle errors
+        card = Card.from_string(await self.recv_message())
+        assert card in legal_moves
+        self.plays(trick, card)
+
 
 class Belote:
-    def __init__(self, players: List[Player]) -> None:
-        assert len(players) == 4
-
-        self.players = players
-        self.set_teams()
-        initialize_double_linked_list(players)
+    def __init__(self) -> None:
+        self.players: List[Player] = []
         self.deck = Deck()
         self.trump: Suit
 
@@ -271,27 +297,42 @@ class Belote:
     def other_team(self) -> Team:
         return next(team for team in self.teams if not team.has_contract)
 
-    def start(self, dealer=None) -> None:
+    def add_player(self, player: Player):
+        self.players.append(player)
+        player.set_number(self.players.index(player) + 1)
+
+    def broadcast(self, msg):
+        for player in self.players:
+            player.send_message(msg)
+
+    async def start(self, dealer=None) -> None:
         # Get a random dealer
         dealer = dealer or random.choice(self.players)
+        self.broadcast(f'The dealer is Player {dealer.number}')
         dealer.deal_5_cards(self.deck)
 
         card = self.deck.peek()
-        print('Do you want to take this card?', card)
+        self.broadcast(f'The card is {card}')
+        for player in self.players:
+            player.send_hand()
         for player in dealer.iter_from_next():
-            if input() == 'yes':
+            player.send_message('Do you want to take the card?')
+            answer = await player.recv_message()
+            if answer == 'yes':
                 bidder = player
                 self.trump = card.suit
+                self.broadcast(f'Player {bidder.number} took the card')
                 break
         else:
-            print('What should be the trump?')
             choices = [suit.value for suit in Suit if suit != Suit(card.suit)]
-            print(f'Choices: {" ".join(choices)}')
+            msg = f'What should be the trump?\nChoices: {" ".join(choices)}'
             for player in dealer.iter_from_next():
-                suit = input()
+                player.send_message(msg)
+                suit = await player.recv_message()
                 if suit in choices:
                     bidder = player
                     self.trump = Suit(suit)
+                    self.broadcast(f'Player {bidder.number} choosed {suit}')
                     break
             else:
                 # Current player needs to cut and we need to start a new game.
@@ -299,19 +340,16 @@ class Belote:
                 return
         bidder.team.has_contract = True
         dealer.deal_remaining(self.deck, bidder)
+        for player in self.players:
+            player.send_hand()
 
         nb_tricks = 8
         winner = dealer.next
         for _ in range(nb_tricks):
             trick: Trick = Trick(self)
             for player in winner.iter_from_self():
-                legal_moves = player.legal_moves(trick)
-                print('What are you playing?', legal_moves)
+                await player.ask_to_play(trick)
 
-                # TODO: Handle errors
-                card = Card.from_string(input())
-                assert card in legal_moves
-                player.plays(trick, card)
             winner, winning_card = trick.winning_player_card
             winner.team.score += trick.total_score
         # The winner of the last trick gets 10 points
@@ -323,6 +361,11 @@ class Belote:
         else:
             print('Other team won!')
 
+    def start_game_if_ready(self, loop):
+        if len(self.players) == 4:
+            initialize_double_linked_list(self.players)
+            self.set_teams()
+            asyncio.ensure_future(self.start())
 
 
 def initialize_double_linked_list(players: List[Player]) -> None:
@@ -335,8 +378,35 @@ def initialize_double_linked_list(players: List[Player]) -> None:
         previous_player = player
 
 
-p1 = Player()
-p2 = Player()
-p3 = Player()
-p4 = Player()
-Belote([p1, p2, p3, p4]).start()
+class BeloteProtocol(asyncio.Protocol):
+    def __init__(self, game, loop):
+        super().__init__()
+        self.game = game
+        self.loop = loop
+
+    def connection_made(self, transport):
+        self.player = Player(transport)
+        self.game.add_player(self.player)
+        self.game.start_game_if_ready(self.loop)
+
+    def data_received(self, data):
+        self.player.queue.put_nowait(data.decode().strip())
+
+
+loop = asyncio.get_event_loop()
+loop.set_debug(True)
+belote = Belote()
+server = loop.run_until_complete(
+loop.create_server(lambda: BeloteProtocol(belote, loop), '127.0.0.1', 8888))
+
+# Serve requests until Ctrl+C is pressed
+print('Serving on {}'.format(server.sockets[0].getsockname()))
+try:
+    loop.run_forever()
+except KeyboardInterrupt:
+    pass
+
+# Close the server
+server.close()
+loop.run_until_complete(server.wait_closed())
+loop.close()
